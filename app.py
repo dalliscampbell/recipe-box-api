@@ -136,5 +136,70 @@ def delete_recipe(recipe_id):
     return "", 204
 
 
+@app.post("/register")
+def register():
+    data = request.get_json(silent=True)
+
+    if not data:
+        return jsonify({"error": "JSON body is required"}), 400
+
+    username = data.get("username")
+    email = data.get("email")
+    password = data.get("password")
+
+    if not username or not email or not password:
+        return jsonify({"error": "username, email, and password are required"}), 400
+
+    db = get_db()
+
+    try:
+        cur = db.execute(
+            "INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+            (username, email, hash_password(password)),
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "username or email already exists"}), 409
+
+    return jsonify(
+        {
+            "id": cur.lastrowid,
+            "username": username,
+            "email": email,
+        }
+    ), 201
+
+
+@app.post("/login")
+def login():
+    data = request.get_json() or {}
+
+    username = data.get("username")
+    password = data.get("password")
+
+    if not username or not password:
+        return jsonify({"error": "username and password are required"}), 400
+
+    db = get_db()
+    user = db.execute(
+        "SELECT id, username, password_hash FROM users WHERE username = ?",
+        (username,),
+    ).fetchone()
+
+    # Generic auth failure message for both "no such user" and "wrong password"
+    auth_error = jsonify({"error": "invalid credentials"}), 401
+
+    if user is None:
+        return auth_error
+
+    if not check_password_hash(user["password_hash"], password):
+        return auth_error
+
+    # Success: return safe identity info only
+    return jsonify({
+        "id": user["id"],
+        "username": user["username"]
+    }), 200
+
 if __name__ == "__main__":
     app.run(debug=True)
